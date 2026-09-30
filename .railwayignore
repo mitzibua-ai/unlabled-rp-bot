@@ -1,0 +1,7 @@
+_railway_import_vars.js
+node_modules
+.git
+.env
+*.log
+transcripts
+.DS_Store

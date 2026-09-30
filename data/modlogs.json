@@ -1,0 +1,22 @@
+[
+  {
+    "action": "mute",
+    "targetId": "1550030995330301953",
+    "targetTag": "smookeyrawrr",
+    "moderatorId": "1284140942764539985",
+    "reason": "No reason provided",
+    "extra": "Duration: 1h",
+    "at": 1790649915760,
+    "guildId": "1552563497286762516"
+  },
+  {
+    "action": "unmute",
+    "targetId": "1550030995330301953",
+    "targetTag": "smookeyrawrr",
+    "moderatorId": "1284140942764539985",
+    "reason": "Manual unmute",
+    "extra": null,
+    "at": 1790649947441,
+    "guildId": "1552563497286762516"
+  }
+]
