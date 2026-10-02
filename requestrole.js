@@ -13,6 +13,7 @@ const {
 } = require("discord.js");
 const logger = require("./logger");
 const { isStaff, isFactionLeader } = require("./roles");
+const { applyRolePrefix } = require("./nickprefix");
 
 const SERVER_NAME = "UNLABLED RP";
 const EMBED_COLOR = 0xf1c40f;
@@ -328,10 +329,21 @@ async function handleButton(interaction) {
   saveRequests(requests);
 
   let roleNote = "";
+  let nickNote = "";
   if (req.status === "approved") {
     try {
       const member = await interaction.guild.members.fetch(req.userId);
       await member.roles.add(req.roleId);
+      const nickResult = await applyRolePrefix(member, {
+        roleId: req.roleId,
+        roleName: req.roleName,
+        icName: req.name,
+      });
+      if (nickResult.ok && nickResult.changed && nickResult.nick) {
+        nickNote = ` Nickname set to **${nickResult.nick}**.`;
+      } else if (nickResult.note) {
+        nickNote = nickResult.note;
+      }
     } catch (err) {
       console.error("Failed to add role on request approve:", err.message);
       roleNote =
@@ -350,7 +362,7 @@ async function handleButton(interaction) {
   await interaction.editReply({
     content:
       req.status === "approved"
-        ? `Approved **${req.name}** for **${req.roleName}**.${roleNote}`
+        ? `Approved **${req.name}** for **${req.roleName}**.${roleNote}${nickNote}`
         : `Denied **${req.name}** for **${req.roleName}**.`,
   });
   return true;
