@@ -78,7 +78,9 @@ async function logWhitelist(client, guild, { action, app, actorId, extra }) {
   const color =
     action === "Approved" || action === "Staff Added" || action === "Moderator Added"
       ? 0x2ecc71
-      : action === "Denied" || action === "Auto-Denied"
+      : action === "Denied" ||
+          action === "Auto-Denied" ||
+          action === "Revoked"
         ? 0xe74c3c
         : action === "Vouched"
           ? 0x3498db

@@ -11,6 +11,7 @@ const {
   TextInputStyle,
   PermissionFlagsBits,
   MessageFlags,
+  ApplicationCommandOptionType,
 } = require("discord.js");
 const logger = require("./logger");
 const { isStaff } = require("./roles");
@@ -217,7 +218,9 @@ function buildAppEmbed(app, guild) {
         ? `Approved by <@${app.reviewedBy}>`
         : app.status === "denied"
           ? `Denied by <@${app.reviewedBy}>`
-          : app.status;
+          : app.status === "revoked"
+            ? `Revoked by <@${app.reviewedBy}>`
+            : app.status;
 
   const vouchers =
     app.vouchers.length > 0
@@ -243,13 +246,17 @@ function buildAppEmbed(app, guild) {
       ? "Approved"
       : app.status === "denied"
         ? "Denied"
-        : "Pending";
+        : app.status === "revoked"
+          ? "Revoked"
+          : "Pending";
 
   let description;
   if (app.status === "approved") {
     description = "This whitelist application has been **approved**.";
   } else if (app.status === "denied") {
     description = "This whitelist application has been **denied**.";
+  } else if (app.status === "revoked") {
+    description = "This whitelist has been **revoked** by staff.";
   } else if (app.needsInterview) {
     description =
       "This applicant selected **No Vouch** and needs an admin interview.";
@@ -440,6 +447,108 @@ async function revokeVouch(interaction) {
   await interaction.editReply({
     content: `Your vouch for ${member} was revoked.`,
   });
+}
+
+async function handleRevokeCommand(interaction) {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  if (!isStaff(interaction.member)) {
+    await interaction.editReply({
+      content:
+        "Only moderators or admins can revoke whitelist. (Patron / EMS / PD leads cannot.)",
+    });
+    return true;
+  }
+
+  const targetUser = interaction.options.getUser("user", true);
+  const reason =
+    interaction.options.getString("reason")?.trim() || "No reason provided";
+
+  if (targetUser.bot) {
+    await interaction.editReply({ content: "You cannot revoke a bot." });
+    return true;
+  }
+
+  const roleId = (process.env.CITIZEN_ROLE_ID || "").trim();
+  let member = null;
+  try {
+    member = await interaction.guild.members.fetch(targetUser.id);
+  } catch {
+    member = null;
+  }
+
+  const hasCitizen =
+    Boolean(roleId) && Boolean(member?.roles.cache.has(roleId));
+
+  const apps = loadApps();
+  const approvedApps = Object.values(apps).filter(
+    (a) => a.userId === targetUser.id && a.status === "approved"
+  );
+
+  if (!hasCitizen && approvedApps.length === 0) {
+    await interaction.editReply({
+      content: `${targetUser} is not currently whitelisted (no Citizen role / approved application).`,
+    });
+    return true;
+  }
+
+  let roleNote = "";
+  if (roleId && member) {
+    if (hasCitizen) {
+      try {
+        await member.roles.remove(roleId, `Whitelist revoked by ${interaction.user.tag}: ${reason}`);
+      } catch (err) {
+        console.error("Failed to remove Citizen role on revoke:", err.message);
+        roleNote =
+          " (Could not remove Citizen role — check bot permissions / role hierarchy.)";
+      }
+    }
+  } else if (roleId && !member) {
+    roleNote = " (User left the server — Citizen role could not be removed.)";
+  } else if (!roleId) {
+    roleNote = " (CITIZEN_ROLE_ID is not set.)";
+  }
+
+  for (const app of approvedApps) {
+    app.status = "revoked";
+    app.reviewedBy = interaction.user.id;
+    app.revokedAt = Date.now();
+    app.revokeReason = reason;
+    await refreshAppMessage(interaction.client, app);
+  }
+  if (approvedApps.length) saveApps(apps);
+
+  const primary = approvedApps[0] || {
+    userId: targetUser.id,
+    username: targetUser.username,
+    firstName: member?.displayName || targetUser.username,
+    lastName: "",
+    needsInterview: false,
+    status: "revoked",
+    vouchers: [],
+    reviewedBy: interaction.user.id,
+    accountCreated: member
+      ? formatAccountCreated(member.user)
+      : formatAccountCreated(targetUser),
+  };
+
+  await logger.logWhitelist(interaction.client, interaction.guild, {
+    action: "Revoked",
+    app: { ...primary, status: "revoked" },
+    actorId: interaction.user.id,
+    extra: `Reason: ${reason}${
+      approvedApps.length
+        ? `\nApplications marked revoked: ${approvedApps.length}`
+        : "\nNo stored application — Citizen role removed only."
+    }`,
+  });
+
+  await interaction.editReply({
+    content: `Revoked whitelist for ${targetUser}.${
+      roleNote || " Citizen role removed."
+    }`,
+  });
+  return true;
 }
 
 async function staffAddPlayer(interaction) {
@@ -846,28 +955,31 @@ async function handleInteraction(interaction) {
     }
   }
 
-  if (
-    interaction.isChatInputCommand() &&
-    interaction.commandName === "setup-whitelist"
-  ) {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  if (interaction.isChatInputCommand()) {
+    if (interaction.commandName === "setup-whitelist") {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-    if (!isStaff(interaction.member)) {
+      if (!isStaff(interaction.member)) {
+        await interaction.editReply({
+          content: "Only moderators or admins can post the whitelist panel.",
+        });
+        return true;
+      }
+      const panelChannelId = process.env.WHITELIST_PANEL_CHANNEL_ID;
+      const channel = panelChannelId
+        ? await interaction.client.channels.fetch(panelChannelId)
+        : interaction.channel;
+
+      await postPanel(channel);
       await interaction.editReply({
-        content: "Only moderators or admins can post the whitelist panel.",
+        content: `Whitelist panel posted in <#${channel.id}>.`,
       });
       return true;
     }
-    const panelChannelId = process.env.WHITELIST_PANEL_CHANNEL_ID;
-    const channel = panelChannelId
-      ? await interaction.client.channels.fetch(panelChannelId)
-      : interaction.channel;
 
-    await postPanel(channel);
-    await interaction.editReply({
-      content: `Whitelist panel posted in <#${channel.id}>.`,
-    });
-    return true;
+    if (interaction.commandName === "revoke") {
+      return handleRevokeCommand(interaction);
+    }
   }
 
   return false;
@@ -879,6 +991,29 @@ function getCommands() {
       name: "setup-whitelist",
       description: "Post the UNLABLED RP whitelist request panel",
       defaultMemberPermissions: PermissionFlagsBits.ManageGuild.toString(),
+    },
+    {
+      name: "revoke",
+      description:
+        "Revoke a player's whitelist and remove their Citizen role (mods/admins only)",
+      defaultMemberPermissions:
+        PermissionFlagsBits.ModerateMembers.toString(),
+      dmPermission: false,
+      options: [
+        {
+          name: "user",
+          description: "The player to revoke whitelist from",
+          type: ApplicationCommandOptionType.User,
+          required: true,
+        },
+        {
+          name: "reason",
+          description: "Reason for the revoke",
+          type: ApplicationCommandOptionType.String,
+          required: false,
+          max_length: 200,
+        },
+      ],
     },
   ];
 }

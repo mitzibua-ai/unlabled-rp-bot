@@ -92,7 +92,7 @@ client.once(Events.ClientReady, async () => {
     }
 
     console.log(
-      "Slash commands registered (/setup-whitelist, /setup-tickets, /rename, /requestrole, /unrole)"
+      "Slash commands registered (/setup-whitelist, /revoke, /setup-tickets, /rename, /requestrole, /unrole)"
     );
   });
 
