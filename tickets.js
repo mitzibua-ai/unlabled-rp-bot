@@ -659,16 +659,7 @@ async function createTicketFromModal(interaction) {
     .setAuthor({ name: SERVER_NAME, iconURL: logo })
     .setTitle(`${category.name} Ticket`)
     .setDescription(
-      [
-        `Hello ${interaction.user},`,
-        "",
-        `**Type:** ${category.name}`,
-        "",
-        "Thank you for Contacting support. Please wait for Staffs to response.",
-        "",
-        "Staff can use **Add Player** to invite someone into this ticket by Discord ID or username.",
-        "Click **Close Ticket** when your issue is resolved.",
-      ].join("\n")
+      `Hello ${interaction.user} Thank you for Contacting support. Please wait for Staffs to response.`
     )
     .addFields(
       { name: "Opened by", value: `${interaction.user}`, inline: true },
