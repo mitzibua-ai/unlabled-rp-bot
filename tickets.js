@@ -28,8 +28,220 @@ const IDS = {
   CANCEL_CLOSE: "ticket_cancel_close",
   ADD_PLAYER: "ticket_add_player",
   MODAL_ADD: "ticket_modal_add",
+  MODAL_CREATE: "ticket_create",
   PLAYER: "ticket_player",
 };
+
+/** Discord modal field labels max 45 chars. */
+const TICKET_FORMS = {
+  player: {
+    title: "Player Support Form",
+    fields: [
+      {
+        id: "ingame",
+        label: "INGAME NAME",
+        style: TextInputStyle.Short,
+        required: true,
+        max: 64,
+      },
+      {
+        id: "happen",
+        label: "TELL WHAT HAPPEN?",
+        style: TextInputStyle.Paragraph,
+        required: true,
+        max: 1000,
+      },
+      {
+        id: "report",
+        label: "USER OF YOU REPORT?",
+        style: TextInputStyle.Short,
+        required: false,
+        max: 100,
+      },
+      {
+        id: "datetime",
+        label: "TIME AND DATE?",
+        style: TextInputStyle.Short,
+        required: true,
+        max: 100,
+      },
+      {
+        id: "clip",
+        label: "CLIP OR POV",
+        style: TextInputStyle.Short,
+        required: false,
+        max: 200,
+      },
+    ],
+  },
+  partnership: {
+    title: "Partnership Form",
+    fields: [
+      {
+        id: "ingame",
+        label: "INGAME NAME",
+        style: TextInputStyle.Short,
+        required: true,
+        max: 64,
+      },
+      {
+        id: "shop_link",
+        label: "SERVER LINK OF YOUR SHOP",
+        style: TextInputStyle.Short,
+        required: true,
+        max: 200,
+      },
+      {
+        id: "benefit",
+        label: "CITIZEN/STAFF BENEFIT TO YOUR SHOP?",
+        style: TextInputStyle.Paragraph,
+        required: true,
+        max: 1000,
+      },
+    ],
+  },
+  streamer: {
+    title: "Streamer Form",
+    fields: [
+      {
+        id: "ingame",
+        label: "INGAME NAME",
+        style: TextInputStyle.Short,
+        required: true,
+        max: 64,
+      },
+      {
+        id: "platform",
+        label: "WHAT PLATFORM YOUR USING",
+        style: TextInputStyle.Short,
+        required: true,
+        max: 100,
+      },
+      {
+        id: "platform_link",
+        label: "PLATFORM LINK",
+        style: TextInputStyle.Short,
+        required: true,
+        max: 200,
+      },
+      {
+        id: "contribute",
+        label: "WHAT CAN YOU CONTRIBUTE TO THE CITY",
+        style: TextInputStyle.Paragraph,
+        required: true,
+        max: 1000,
+      },
+    ],
+  },
+  ban: {
+    title: "Ban Appeal Form",
+    fields: [
+      {
+        id: "ingame",
+        label: "INGAME NAME",
+        style: TextInputStyle.Short,
+        required: true,
+        max: 64,
+      },
+      {
+        id: "datetime",
+        label: "TIME AND DATE",
+        style: TextInputStyle.Short,
+        required: true,
+        max: 100,
+      },
+      {
+        id: "ban_id",
+        label: "BAN ID",
+        style: TextInputStyle.Short,
+        required: true,
+        max: 64,
+      },
+      {
+        id: "clip",
+        label: "CLIP OR POV",
+        style: TextInputStyle.Short,
+        required: false,
+        max: 200,
+      },
+    ],
+  },
+  generic: {
+    title: "Ticket Form",
+    fields: [
+      {
+        id: "ingame",
+        label: "INGAME NAME",
+        style: TextInputStyle.Short,
+        required: true,
+        max: 64,
+      },
+      {
+        id: "happen",
+        label: "TELL WHAT HAPPEN?",
+        style: TextInputStyle.Paragraph,
+        required: true,
+        max: 1000,
+      },
+    ],
+  },
+};
+
+function getTicketFormKind(categoryName) {
+  const n = String(categoryName || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, " ")
+    .trim();
+  if (/\bBAN\b/.test(n) || /\bAPPEAL\b/.test(n)) return "ban";
+  if (/\bPARTNER/.test(n)) return "partnership";
+  if (/\bSTREAM/.test(n)) return "streamer";
+  if (/\bPLAYER\b/.test(n) || /\bSUPPORT\b/.test(n)) return "player";
+  return "generic";
+}
+
+function buildTicketFormModal(categoryId, categoryName) {
+  const kind = getTicketFormKind(categoryName);
+  const form = TICKET_FORMS[kind] || TICKET_FORMS.generic;
+  const modal = new ModalBuilder()
+    .setCustomId(`${IDS.MODAL_CREATE}:${categoryId}`)
+    .setTitle(form.title.slice(0, 45));
+
+  for (const field of form.fields.slice(0, 5)) {
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId(field.id)
+          .setLabel(field.label.slice(0, 45))
+          .setStyle(field.style)
+          .setRequired(field.required)
+          .setMaxLength(field.max)
+      )
+    );
+  }
+  return modal;
+}
+
+function collectTicketFormAnswers(interaction, categoryName) {
+  const kind = getTicketFormKind(categoryName);
+  const form = TICKET_FORMS[kind] || TICKET_FORMS.generic;
+  const answers = [];
+  for (const field of form.fields) {
+    let value = "";
+    try {
+      value = interaction.fields.getTextInputValue(field.id).trim();
+    } catch {
+      value = "";
+    }
+    if (value) {
+      answers.push({ name: field.label, value: value.slice(0, 1024) });
+    } else if (field.required) {
+      answers.push({ name: field.label, value: "—" });
+    } else {
+      answers.push({ name: field.label, value: "N/A" });
+    }
+  }
+  return answers;
+}
 
 function getLogo(guild) {
   return (
@@ -323,10 +535,40 @@ function findOpenTicket(guild, userId) {
   );
 }
 
-async function createTicket(interaction) {
+async function beginTicketSelect(interaction) {
+  const categoryId = interaction.values[0];
+
+  let category;
+  try {
+    category = await interaction.guild.channels.fetch(categoryId);
+  } catch {
+    category = null;
+  }
+
+  if (!category || category.type !== ChannelType.GuildCategory) {
+    await interaction.reply({
+      content: "That ticket category is no longer valid.",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  const existing = findOpenTicket(interaction.guild, interaction.user.id);
+  if (existing) {
+    await interaction.reply({
+      content: `You already have an open ticket: ${existing}`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  await interaction.showModal(buildTicketFormModal(categoryId, category.name));
+}
+
+async function createTicketFromModal(interaction) {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-  const categoryId = interaction.values[0];
+  const categoryId = interaction.customId.split(":").slice(1).join(":");
   const modRoleIds = getModeratorRoleIds();
 
   let category;
@@ -351,6 +593,7 @@ async function createTicket(interaction) {
     return;
   }
 
+  const formAnswers = collectTicketFormAnswers(interaction, category.name);
   const logo = getLogo(interaction.guild);
   const safeUser =
     interaction.user.username
@@ -417,11 +660,11 @@ async function createTicket(interaction) {
     .setTitle(`${category.name} Ticket`)
     .setDescription(
       [
-        `Hello ${interaction.user}, thanks for contacting **${SERVER_NAME}** support.`,
+        `Hello ${interaction.user},`,
         "",
         `**Type:** ${category.name}`,
         "",
-        "Please describe your issue and a moderator will be with you shortly.",
+        "Thank you for Contacting support. Please wait for Staffs to response.",
         "",
         "Staff can use **Add Player** to invite someone into this ticket by Discord ID or username.",
         "Click **Close Ticket** when your issue is resolved.",
@@ -433,7 +676,12 @@ async function createTicket(interaction) {
         name: "Created",
         value: `<t:${Math.floor(Date.now() / 1000)}:R>`,
         inline: true,
-      }
+      },
+      ...formAnswers.map((f) => ({
+        name: f.name,
+        value: f.value,
+        inline: false,
+      }))
     )
     .setFooter({
       text: `${SERVER_NAME} • Ticket System`,
@@ -726,7 +974,7 @@ async function confirmClose(interaction) {
 
 async function handleInteraction(interaction) {
   if (interaction.isStringSelectMenu() && interaction.customId === IDS.SELECT) {
-    await createTicket(interaction);
+    await beginTicketSelect(interaction);
     return true;
   }
 
@@ -766,9 +1014,15 @@ async function handleInteraction(interaction) {
     }
   }
 
-  if (interaction.isModalSubmit() && interaction.customId === IDS.MODAL_ADD) {
-    await addPlayerToTicket(interaction);
-    return true;
+  if (interaction.isModalSubmit()) {
+    if (interaction.customId === IDS.MODAL_ADD) {
+      await addPlayerToTicket(interaction);
+      return true;
+    }
+    if (interaction.customId.startsWith(`${IDS.MODAL_CREATE}:`)) {
+      await createTicketFromModal(interaction);
+      return true;
+    }
   }
 
   if (
