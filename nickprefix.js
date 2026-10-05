@@ -40,7 +40,8 @@ function parsePrefixMap() {
 
 function loadGangTags() {
   try {
-    const raw = JSON.parse(fs.readFileSync(GANG_TAGS_PATH, "utf8"));
+    const text = fs.readFileSync(GANG_TAGS_PATH, "utf8");
+    const raw = JSON.parse(text);
     const map = {};
     if (raw && typeof raw === "object") {
       for (const [key, value] of Object.entries(raw)) {
@@ -51,7 +52,11 @@ function loadGangTags() {
       }
     }
     return map;
-  } catch {
+  } catch (err) {
+    console.error(
+      "Failed to load data/gang-tags.json — fix JSON syntax (commas between entries):",
+      err.message
+    );
     return {};
   }
 }
