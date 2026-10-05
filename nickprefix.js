@@ -1,5 +1,5 @@
 /**
- * Nickname prefixes from faction roles, e.g. "EMS | Smookey" / "PD | Smookey".
+ * Nickname prefixes from faction roles, e.g. "EMS Smookey" / "PD Smookey" / "STVL Smookey".
  * Optional env: ROLE_NICK_PREFIX_MAP=roleId:EMS,roleId:PD
  */
 
@@ -65,14 +65,15 @@ function getPrefixForRole(roleId, roleName) {
   return first.slice(0, 16);
 }
 
-/** Remove a leading "PREFIX | " style tag from a display name. */
+/** Remove a leading "PREFIX " or legacy "PREFIX | " tag from a display name. */
 function stripPrefix(displayName, prefix) {
   const current = String(displayName || "").trim();
   if (!current) return "";
 
   if (prefix) {
+    // New format: "STVL Smookey"  / legacy: "STVL | Smookey"
     const re = new RegExp(
-      `^${escapeRegExp(prefix)}\\s*\\|\\s*`,
+      `^${escapeRegExp(prefix)}(?:\\s*\\|\\s*|\\s+)`,
       "i"
     );
     if (re.test(current)) {
@@ -80,7 +81,7 @@ function stripPrefix(displayName, prefix) {
     }
   }
 
-  // Generic "SOMETHING | Name" fallback
+  // Legacy pipe-only fallback: "SOMETHING | Name"
   return current.replace(/^[A-Za-z0-9]{1,16}\s*\|\s*/, "").trim();
 }
 
@@ -90,11 +91,11 @@ function escapeRegExp(s) {
 
 function buildPrefixedNick(prefix, baseName) {
   const base = String(baseName || "").trim() || "Unknown";
-  return `${prefix} | ${base}`.slice(0, 32);
+  return `${prefix} ${base}`.slice(0, 32);
 }
 
 /**
- * After a role is granted: set nick to "PREFIX | ICName".
+ * After a role is granted: set nick to "PREFIX ICName".
  * Returns { ok, nick, note }.
  */
 async function applyRolePrefix(member, { roleId, roleName, icName }) {
@@ -125,7 +126,7 @@ async function applyRolePrefix(member, { roleId, roleName, icName }) {
 }
 
 /**
- * After a role is removed: strip "PREFIX | " from the nick.
+ * After a role is removed: strip "PREFIX " from the nick.
  * Returns { ok, nick, note, changed }.
  */
 async function removeRolePrefix(member, { roleId, roleName, icName }) {
