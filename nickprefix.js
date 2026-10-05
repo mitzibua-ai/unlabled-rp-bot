@@ -1,7 +1,24 @@
 /**
- * Nickname prefixes from faction roles, e.g. "EMS Smookey" / "PD Smookey" / "STVL Smookey".
- * Optional env: ROLE_NICK_PREFIX_MAP=roleId:EMS,roleId:PD
+ * Nickname prefixes from faction roles, e.g. "TBS Smookey" / "EMS Smookey" / "PD Smookey".
+ *
+ * Tag resolution order:
+ * 1. ROLE_NICK_PREFIX_MAP env (roleId:TAG or Role Name:TAG)
+ * 2. data/gang-tags.json (roleId or role name → TAG)
+ * 3. Built-in EMS / PD detection
+ * 4. Fallback from role name (skips filler words like THE)
  */
+
+const fs = require("fs");
+const path = require("path");
+
+const GANG_TAGS_PATH = path.join(__dirname, "data", "gang-tags.json");
+
+function normalizeKey(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, " ");
+}
 
 function parsePrefixMap() {
   const map = {};
@@ -11,24 +28,55 @@ function parsePrefixMap() {
     if (!trimmed) continue;
     const idx = trimmed.indexOf(":");
     if (idx <= 0) continue;
-    const id = trimmed.slice(0, idx).trim();
+    const key = trimmed.slice(0, idx).trim();
     const prefix = trimmed.slice(idx + 1).trim();
-    if (id && prefix) map[id] = prefix;
+    if (key && prefix) {
+      map[key] = prefix;
+      map[normalizeKey(key)] = prefix;
+    }
   }
   return map;
 }
 
+function loadGangTags() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(GANG_TAGS_PATH, "utf8"));
+    const map = {};
+    if (raw && typeof raw === "object") {
+      for (const [key, value] of Object.entries(raw)) {
+        const tag = String(value || "").trim();
+        if (!key || !tag) continue;
+        map[String(key).trim()] = tag;
+        map[normalizeKey(key)] = tag;
+      }
+    }
+    return map;
+  } catch {
+    return {};
+  }
+}
+
+function lookupTag(maps, roleId, roleName) {
+  const id = String(roleId || "").trim();
+  const name = normalizeKey(roleName);
+  for (const map of maps) {
+    if (id && map[id]) return map[id].slice(0, 16);
+    if (name && map[name]) return map[name].slice(0, 16);
+    if (roleName && map[String(roleName).trim()]) {
+      return map[String(roleName).trim()].slice(0, 16);
+    }
+  }
+  return null;
+}
+
 /**
- * Derive a nick prefix from a Discord role (EMS / PD / gang name, etc.).
+ * Derive a nick prefix from a Discord role (custom gang tag / EMS / PD / fallback).
  */
 function getPrefixForRole(roleId, roleName) {
-  const fromMap = parsePrefixMap()[String(roleId || "")];
-  if (fromMap) return fromMap.slice(0, 16);
+  const fromMaps = lookupTag([parsePrefixMap(), loadGangTags()], roleId, roleName);
+  if (fromMaps) return fromMaps;
 
-  const n = String(roleName || "")
-    .trim()
-    .toUpperCase()
-    .replace(/\s+/g, " ");
+  const n = normalizeKey(roleName);
   if (!n) return null;
 
   if (
@@ -51,10 +99,10 @@ function getPrefixForRole(roleId, roleName) {
     return "PD";
   }
 
-  // Gangs / other factions: drop rank words, use the faction label
+  // Drop rank / filler words, then use first meaningful word
   let label = n
     .replace(
-      /\b(DIRECTOR|PATRON|MEMBER|RECRUIT|TRAINEE|OFFICER|CHIEF|LEADER|BOSS|ENFORCER|SOLDIER|PROSPECT)\b/g,
+      /\b(DIRECTOR|PATRON|MEMBER|RECRUIT|TRAINEE|OFFICER|CHIEF|LEADER|BOSS|ENFORCER|SOLDIER|PROSPECT|THE|A|AN|OF|AND)\b/g,
       ""
     )
     .replace(/\s+/g, " ")
@@ -71,7 +119,7 @@ function stripPrefix(displayName, prefix) {
   if (!current) return "";
 
   if (prefix) {
-    // New format: "STVL Smookey"  / legacy: "STVL | Smookey"
+    // New format: "TBS Smookey"  / legacy: "TBS | Smookey"
     const re = new RegExp(
       `^${escapeRegExp(prefix)}(?:\\s*\\|\\s*|\\s+)`,
       "i"
